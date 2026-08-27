@@ -10,6 +10,7 @@ import { ConversationConsole } from './components/ConversationConsole';
 import { PersonalityModal } from './components/PersonalityModal';
 import { DiagnosticsDrawer } from './components/DiagnosticsDrawer';
 import { UltronChatPage } from './components/UltronChatPage';
+import { ChatErrorBoundary } from './components/ChatErrorBoundary';
 
 const MainInterface: React.FC = () => {
   const { mood, status, isVibrating } = useUltron();
@@ -31,7 +32,8 @@ const MainInterface: React.FC = () => {
       <div id="ultron-core-container" className="relative z-20 my-auto flex flex-col items-center"><UltronCore /></div>
     </main>
     <footer id="bottom-console-dock" className="relative z-30 w-full px-4 pb-3 pt-1"><ConversationConsole /></footer>
-    <PersonalityModal /><DiagnosticsDrawer /><UltronChatPage />
+    <PersonalityModal /><DiagnosticsDrawer />
+    <ChatErrorBoundary><UltronChatPage /></ChatErrorBoundary>
   </div>;
 };
 export default function App(){return <UltronProvider><MainInterface/></UltronProvider>;}
