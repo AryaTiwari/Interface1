@@ -1,0 +1,6 @@
+{
+  "name": "ULTRON Mark 2",
+  "description": "Advanced local-first AI operating system interface with reactor core, live neural network nodes, and Guardian decision pipeline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
