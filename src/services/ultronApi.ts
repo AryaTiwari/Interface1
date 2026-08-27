@@ -39,8 +39,8 @@ function normalizePipeline(result: any) {
   const p = result?.pipeline || {};
   return {
     guardian: {
-      status: p.guardian?.status || result?.guardian?.decision === 'warn' ? 'ALERT' : 'CLEAR',
-      riskScore: Number.isFinite(p.guardian?.riskScore) ? p.guardian.riskScore : (Number.isFinite(result?.guardian?.level) ? result.guardian.level : 0),
+      status: p.guardian?.status || (result?.guardian?.decision === 'warn' ? 'ALERT' : 'CLEAR'),
+      riskScore: Number.isFinite(p.guardian?.riskScore) ? p.guardian.riskScore : 0,
       message: p.guardian?.message || result?.guardian?.reasons?.join(' ') || 'Deterministic safety boundary verified.',
     },
     critic: {
@@ -50,7 +50,7 @@ function normalizePipeline(result: any) {
     },
     executor: {
       status: p.executor?.status || (result?.tool_result ? (result.tool_result.ok ? 'COMPLETED' : 'ERROR') : 'STANDBY'),
-      tool: p.executor?.tool || result?.tool || null,
+      tool: p.executor?.tool || result?.toolUsed || null,
     },
   };
 }
@@ -61,16 +61,7 @@ export async function sendUltronQuery(prompt: string, conversationHistory: { rol
   const mood = normalizeMood(result?.mood, fallbackMood);
   const responseText = String(result?.response ?? result?.text ?? result?.error ?? '').trim();
   const pipeline = normalizePipeline(result);
-  return {
-    ...result,
-    text: responseText || 'ULTRON returned no displayable response.',
-    response: responseText || 'ULTRON returned no displayable response.',
-    mood,
-    conversationHistory,
-    userDirectives,
-    pipeline,
-    toolUsed: result?.toolUsed || result?.tool_result?.tool || result?.tool?.name || null,
-  };
+  return { ...result, text: responseText || 'ULTRON returned no displayable response.', response: responseText || 'ULTRON returned no displayable response.', mood, conversationHistory, userDirectives, pipeline, toolUsed: result?.toolUsed || result?.tool_result?.tool || null };
 }
 export async function fetchMemories() { return request<any>('/api/memory'); }
 export async function addMemory(key: string, value: string, category = 'user') { return request<any>('/api/memory', { method: 'POST', body: JSON.stringify({ key, value, category }) }); }
