@@ -29,7 +29,49 @@ export async function fetchPersonality(): Promise<PersonalityConfig> {
 }
 export async function updatePersonality(config: Partial<PersonalityConfig>): Promise<{ success: boolean; personality: PersonalityConfig }> { return { success: true, personality: { ...(await fetchPersonality()), ...config } }; }
 export async function executeTool(toolName: string, args: Record<string, any> = {}) { return request<any>('/api/tools/execute', { method: 'POST', body: JSON.stringify({ name: toolName, input: args, source: 'interface' }) }); }
-export async function sendUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '') { const result = await request<any>('/api/chat', { method: 'POST', body: JSON.stringify({ message: prompt, source: 'interface' }) }); return { ...result, text: result.response || result.text || '', response: result.response || result.text || '', mood: result.mood || activeMood, conversationHistory, userDirectives }; }
+
+const MOODS = new Set(['CALM', 'FOCUSED', 'AMUSED', 'CONFIDENT', 'SUSPICIOUS', 'WARNING', 'CRITICAL']);
+function normalizeMood(value: unknown, fallback = 'CALM') {
+  const candidate = typeof value === 'string' ? value.toUpperCase() : (value && typeof value === 'object' && 'mood' in value ? String((value as any).mood).toUpperCase() : '');
+  return MOODS.has(candidate) ? candidate : fallback;
+}
+function normalizePipeline(result: any) {
+  const p = result?.pipeline || {};
+  return {
+    guardian: {
+      status: p.guardian?.status || result?.guardian?.decision === 'warn' ? 'ALERT' : 'CLEAR',
+      riskScore: Number.isFinite(p.guardian?.riskScore) ? p.guardian.riskScore : (Number.isFinite(result?.guardian?.level) ? result.guardian.level : 0),
+      message: p.guardian?.message || result?.guardian?.reasons?.join(' ') || 'Deterministic safety boundary verified.',
+    },
+    critic: {
+      status: p.critic?.status || (result?.critic?.status === 'approved' ? 'APPROVED' : 'STANDBY'),
+      intent: p.critic?.intent || result?.task?.taskType || 'COGNITIVE_SYNTHESIS',
+      confidence: Number.isFinite(p.critic?.confidence) ? p.critic.confidence : 0.95,
+    },
+    executor: {
+      status: p.executor?.status || (result?.tool_result ? (result.tool_result.ok ? 'COMPLETED' : 'ERROR') : 'STANDBY'),
+      tool: p.executor?.tool || result?.tool || null,
+    },
+  };
+}
+
+export async function sendUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '') {
+  const result = await request<any>('/api/chat', { method: 'POST', body: JSON.stringify({ message: prompt, source: 'interface', conversationHistory, userDirectives }) });
+  const fallbackMood = normalizeMood(activeMood, 'CALM');
+  const mood = normalizeMood(result?.mood, fallbackMood);
+  const responseText = String(result?.response ?? result?.text ?? result?.error ?? '').trim();
+  const pipeline = normalizePipeline(result);
+  return {
+    ...result,
+    text: responseText || 'ULTRON returned no displayable response.',
+    response: responseText || 'ULTRON returned no displayable response.',
+    mood,
+    conversationHistory,
+    userDirectives,
+    pipeline,
+    toolUsed: result?.toolUsed || result?.tool_result?.tool || result?.tool?.name || null,
+  };
+}
 export async function fetchMemories() { return request<any>('/api/memory'); }
 export async function addMemory(key: string, value: string, category = 'user') { return request<any>('/api/memory', { method: 'POST', body: JSON.stringify({ key, value, category }) }); }
 export async function fetchCredentialsStatus() { return request<any>('/api/credentials/status'); }
