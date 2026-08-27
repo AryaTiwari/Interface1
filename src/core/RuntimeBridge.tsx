@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useUltron } from './ultronContext';
 import * as api from '../services/ultronApi';
 
@@ -14,7 +14,20 @@ const map: Record<string, string> = {
 const good = (s: string) => /^(CONNECTED|ONLINE|ELEVATED|LOCAL_READY|LOCAL_READY_SUPABASE_CONFIGURED)$/.test(s);
 
 export const RuntimeBridge: React.FC = () => {
-  const { nodes, toggleNodeStatus, setStatus, setIsChatOpen, mood } = useUltron();
+  const {
+    nodes,
+    toggleNodeStatus,
+    setStatus,
+    setIsChatOpen,
+    isChatOpen,
+    messages,
+    mood,
+  } = useUltron();
+
+  const chatWasOpenRef = useRef(isChatOpen);
+  useEffect(() => {
+    if (isChatOpen) chatWasOpenRef.current = true;
+  }, [isChatOpen]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('ultron:mood', { detail: mood }));
@@ -44,20 +57,25 @@ export const RuntimeBridge: React.FC = () => {
       }
     };
 
-    // Keep the full-screen chat matrix mounted while a message is being submitted.
-    const keepChatOpenDuringSubmit = (event: Event) => {
+    // Never allow the runtime bridge to collapse the conversation UI during a submit.
+    const preserveChatDuringSubmit = (event: Event) => {
       const target = event.target as HTMLElement | null;
       if (!target?.closest('#chat-page-footer')) return;
+      chatWasOpenRef.current = true;
       setIsChatOpen(true);
     };
 
-    document.addEventListener('submit', keepChatOpenDuringSubmit, true);
-    document.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key === 'Enter') {
-        const target = event.target as HTMLElement | null;
-        if (target?.closest('#chat-page-footer')) setIsChatOpen(true);
-      }
-    }, true);
+    const preserveChatDuringChatKey = (event: Event) => {
+      const keyboard = event as KeyboardEvent;
+      if (keyboard.key !== 'Enter' || keyboard.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('#chat-page-footer')) return;
+      chatWasOpenRef.current = true;
+      setIsChatOpen(true);
+    };
+
+    document.addEventListener('submit', preserveChatDuringSubmit, true);
+    document.addEventListener('keydown', preserveChatDuringChatKey, true);
 
     const click = (e: Event) => {
       const b = (e.target as HTMLElement | null)?.closest('button');
@@ -77,10 +95,18 @@ export const RuntimeBridge: React.FC = () => {
     return () => {
       dead = true;
       clearInterval(t);
-      document.removeEventListener('submit', keepChatOpenDuringSubmit, true);
+      document.removeEventListener('submit', preserveChatDuringSubmit, true);
+      document.removeEventListener('keydown', preserveChatDuringChatKey, true);
       document.removeEventListener('click', click, true);
     };
   }, [nodes, setStatus, setIsChatOpen, toggleNodeStatus]);
+
+  // If a state update during the submit cycle briefly closes the chat, restore it.
+  useEffect(() => {
+    if (chatWasOpenRef.current && messages.length > 0 && !isChatOpen) {
+      setIsChatOpen(true);
+    }
+  }, [messages.length, isChatOpen, setIsChatOpen]);
 
   return null;
 };
