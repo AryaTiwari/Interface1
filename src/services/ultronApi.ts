@@ -61,11 +61,52 @@ function speakSequentially(text: string) { voiceQueue = voiceQueue.then(() => sp
 function findBoundary(buffer: string) { const crlf = buffer.indexOf('\r\n\r\n'); const lf = buffer.indexOf('\n\n'); if (crlf < 0) return lf; if (lf < 0) return crlf; return Math.min(crlf, lf); }
 function boundaryLength(buffer: string, index: number) { return buffer.slice(index, index + 4) === '\r\n\r\n' ? 4 : 2; }
 
+function parseExplicitGitHubRead(prompt: string) {
+  const normalized = String(prompt || '').trim().replace(/^ultron\s*[,;:-]?\s*/i, '');
+  const match = normalized.match(/^(?:read|open|inspect|check)\s+([A-Za-z0-9._\-/]+)\s+(?:from|on|in)\s+GitHub(?:\s+(?:and|then)\s+.*)?$/i);
+  if (!match) return null;
+  return { path: match[1], ref: undefined as string | undefined };
+}
+
+function formatExplicitGitHubRead(path: string, content: string) {
+  if (/core\/personality\/default\.json$/i.test(path)) {
+    try {
+      const cfg = JSON.parse(content);
+      const name = cfg.IDENTITY?.NAME || cfg.name || cfg.ULTRON_NAME || 'ULTRON';
+      const role = cfg.IDENTITY?.ROLE || cfg.role || cfg.ULTRON_ROLE || 'personal AI assistant';
+      const personality = cfg.PERSONALITY_PROFILE || cfg.ULTRON_PERSONALITY || cfg.personality || '';
+      const instructions = cfg.BEHAVIORAL_INSTRUCTIONS || cfg.ULTRON_INSTRUCTIONS || cfg.instructions || [];
+      const list = Array.isArray(instructions) ? instructions : String(instructions).split('\n').filter(Boolean);
+      return `I read ${path} from GitHub.\n\n**Identity:** ${name}\n**Role:** ${role}\n\n**Personality:** ${personality}\n\n**Behavioral profile:** ${list.length} directives are configured. The personality emphasizes composure, strategy, directness, subtle playfulness, practical action, thoughtful challenge, creativity, philosophy, and truth over comfort.`;
+    } catch { /* fall through to generic formatting */ }
+  }
+  const preview = content.length > 12000 ? `${content.slice(0, 12000)}\n\n[Truncated at 12,000 characters.]` : content;
+  return `I read ${path} from GitHub.\n\n\`\`\`text\n${preview}\n\`\`\``;
+}
+
+async function executeExplicitGitHubRead(prompt: string, startedAt: number) {
+  const intent = parseExplicitGitHubRead(prompt);
+  if (!intent) return null;
+  emitActivity({ type: 'state', state: 'researching', label: `Reading ${intent.path} from GitHub.` });
+  emitActivity({ type: 'tool', state: 'executing', label: `Executing github_read_file for ${intent.path}.`, tool: 'github_read_file' });
+  const result = await executeTool('github_read_file', intent);
+  const payload = result?.result;
+  if (!result?.ok || !payload?.content) throw new Error(payload?.error || result?.error || `Unable to read ${intent.path} from GitHub.`);
+  const text = formatExplicitGitHubRead(intent.path, String(payload.content));
+  emitActivity({ type: 'delta', state: 'responding', label: 'Generating response…', text });
+  emitActivity({ type: 'text_complete', state: 'synthesizing', label: 'Text response complete. Preparing voice.' });
+  await speakSequentially(text);
+  emitActivity({ type: 'complete', state: 'complete', label: 'Task complete.', durationMs: Date.now() - startedAt });
+  return { ok: true, text, response: text, model: 'github-deterministic', mood: 'FOCUSED', pipeline: normalizePipeline({ tool_result: result, task: { taskType: 'github_read' } }), toolUsed: 'github_read_file', durationMs: Date.now() - startedAt };
+}
+
 export async function sendUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '') {
   const started = Date.now();
   emitActivity({ type: 'state', state: 'thinking', label: 'Understanding the objective.' });
   try {
     emitActivity({ type: 'state', state: 'planning', label: 'Determining the best execution path.' });
+    const explicit = await executeExplicitGitHubRead(prompt, started);
+    if (explicit) return explicit;
     return await streamUltronQuery(prompt, conversationHistory, activeMood, userDirectives, started);
   } catch (error) {
     emitActivity({ type: 'error', state: 'error', label: 'ULTRON request failed.', error: error instanceof Error ? error.message : String(error), durationMs: Date.now() - started });
