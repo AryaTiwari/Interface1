@@ -11,6 +11,7 @@ import { PersonalityModal } from './components/PersonalityModal';
 import { DiagnosticsDrawer } from './components/DiagnosticsDrawer';
 import { UltronChatPage } from './components/UltronChatPage';
 import { ChatErrorBoundary } from './components/ChatErrorBoundary';
+import { AgentActivity } from './components/AgentActivity';
 
 const MainInterface: React.FC = () => {
   const { mood, status, isVibrating } = useUltron();
@@ -33,6 +34,7 @@ const MainInterface: React.FC = () => {
     </main>
     <footer id="bottom-console-dock" className="relative z-30 w-full px-4 pb-3 pt-1"><ConversationConsole /></footer>
     <PersonalityModal /><DiagnosticsDrawer />
+    <AgentActivity />
     <ChatErrorBoundary><UltronChatPage /></ChatErrorBoundary>
   </div>;
 };
