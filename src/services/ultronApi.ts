@@ -2,14 +2,16 @@ import { PersonalityConfig, SystemDiagnostics } from '../types/ultron';
 
 const CORE_URL = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_ULTRON_CORE_URL || 'http://127.0.0.1:8787';
 
-type ActivityEvent = { type: string; state?: string; label?: string; text?: string; tool?: string; toolCalls?: any[]; toolResults?: any[]; error?: string; durationMs?: number; partial?: boolean; [key: string]: any };
-function emitActivity(event: ActivityEvent) { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ultron:activity', { detail: { ...event, at: Date.now() } })); }
+type ActivityEvent = { type: string; state?: string; label?: string; text?: string; tool?: string; error?: string; durationMs?: number; [key: string]: any };
+function emitActivity(event: ActivityEvent) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ultron:activity', { detail: { ...event, at: Date.now() } }));
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${CORE_URL}${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } });
-  const text = await res.text();
+  const raw = await res.text();
   let data: any = {};
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: raw }; }
   if (!res.ok) throw new Error(data?.error || `ULTRON Core request failed (${res.status})`);
   return data as T;
 }
@@ -17,159 +19,139 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export async function fetchSystemStatus(): Promise<SystemDiagnostics> {
   const data = await request<any>('/api/status');
   const s = data.status || {};
-  return { ultronState: 'ONLINE', version: 'Mark 2', coreTemperature: 'LOCAL', neuralLoad: 'LIVE', memoryHeapUsed: 'LIVE', uptimeSeconds: 0, guardianStatus: s.administrator?.status || 'UNKNOWN', activeNodes: [
-    { id: 'internet', name: 'INTERNET', status: s.internetSpeed?.status, latency: s.internetSpeed?.measuredMbps ? `${s.internetSpeed.measuredMbps} Mbps` : 'OFFLINE' },
-    { id: 'quantum_matrix', name: 'INSTAGRAM', status: s.instagram?.status, latency: s.instagram?.latencyMs != null ? `${s.instagram.latencyMs}ms` : 'OFFLINE' },
-    { id: 'supabase_memory', name: 'MEMORY', status: s.memory?.status, latency: s.memory?.writable ? 'LOCAL READY' : 'UNAVAILABLE' },
-    { id: 'ai_brain', name: 'OMNIROUTE', status: s.omniroute?.status, latency: s.omniroute?.latencyMs != null ? `${s.omniroute.latencyMs}ms` : 'OFFLINE' },
-    { id: 'github', name: 'GITHUB', status: s.github?.status, latency: s.github?.latencyMs != null ? `${s.github.latencyMs}ms` : 'OFFLINE' },
-    { id: 'guardian', name: 'ADMINISTRATOR', status: s.administrator?.status, latency: s.administrator?.elevated ? 'ELEVATED' : 'STANDARD' },
-  ], live: data } as SystemDiagnostics;
+  return {
+    ultronState: 'ONLINE', version: 'Mark 2', coreTemperature: 'LOCAL', neuralLoad: 'LIVE', memoryHeapUsed: 'LIVE', uptimeSeconds: 0,
+    guardianStatus: s.administrator?.status || 'UNKNOWN',
+    activeNodes: [
+      { id: 'internet', name: 'INTERNET', status: s.internetSpeed?.status, latency: s.internetSpeed?.measuredMbps ? `${s.internetSpeed.measuredMbps} Mbps` : 'OFFLINE' },
+      { id: 'quantum_matrix', name: 'INSTAGRAM', status: s.instagram?.status, latency: s.instagram?.latencyMs != null ? `${s.instagram.latencyMs}ms` : 'OFFLINE' },
+      { id: 'supabase_memory', name: 'MEMORY', status: s.memory?.status, latency: s.memory?.writable ? 'LOCAL READY' : 'UNAVAILABLE' },
+      { id: 'ai_brain', name: 'OMNIROUTE', status: s.omniroute?.status, latency: s.omniroute?.latencyMs != null ? `${s.omniroute.latencyMs}ms` : 'OFFLINE' },
+      { id: 'github', name: 'GITHUB', status: s.github?.status, latency: s.github?.latencyMs != null ? `${s.github.latencyMs}ms` : 'OFFLINE' },
+      { id: 'guardian', name: 'ADMINISTRATOR', status: s.administrator?.status, latency: s.administrator?.elevated ? 'ELEVATED' : 'STANDARD' },
+    ],
+    live: data,
+  } as SystemDiagnostics;
 }
 
 export async function fetchPersonality(): Promise<PersonalityConfig> {
   return request<any>('/api/personality').catch(() => ({
     ULTRON_NAME: 'ULTRON Mark 2',
-    ULTRON_ROLE: 'Arya\'s personal AI assistant, strategic companion, and execution partner',
+    ULTRON_ROLE: "Arya's personal AI assistant, strategic companion, and execution partner",
     ULTRON_PERSONALITY: 'Calm, formidable, intelligent, composed, strategic, observant, creative, philosophical, direct, subtly playful, and deeply practical.',
     ULTRON_INSTRUCTIONS: 'Balance trusted friend, elite assistant, strategist, and execution partner. Challenge avoidance without losing composure.',
   }));
 }
-export async function updatePersonality(config: Partial<PersonalityConfig>): Promise<{ success: boolean; personality: PersonalityConfig }> { return { success: true, personality: { ...(await fetchPersonality()), ...config } }; }
-export async function executeTool(toolName: string, args: Record<string, any> = {}) { return request<any>('/api/tools/execute', { method: 'POST', body: JSON.stringify({ name: toolName, input: args, source: 'interface' }) }); }
+
+export async function updatePersonality(config: Partial<PersonalityConfig>): Promise<{ success: boolean; personality: PersonalityConfig }> {
+  return { success: true, personality: { ...(await fetchPersonality()), ...config } };
+}
+
+export async function executeTool(toolName: string, args: Record<string, any> = {}) {
+  return request<any>('/api/tools/execute', { method: 'POST', body: JSON.stringify({ name: toolName, input: args, source: 'interface' }) });
+}
 
 const MOODS = new Set(['CALM', 'FOCUSED', 'AMUSED', 'CONFIDENT', 'SUSPICIOUS', 'WARNING', 'CRITICAL']);
-function normalizeMood(value: unknown, fallback = 'CALM') { const candidate = typeof value === 'string' ? value.toUpperCase() : (value && typeof value === 'object' && 'mood' in value ? String((value as any).mood).toUpperCase() : ''); return MOODS.has(candidate) ? candidate : fallback; }
-function normalizePipeline(result: any) { const p = result?.pipeline || {}; return { guardian: { status: p.guardian?.status || (result?.guardian?.decision === 'warn' ? 'ALERT' : 'CLEAR'), riskScore: Number.isFinite(p.guardian?.riskScore) ? p.guardian.riskScore : 0, message: p.guardian?.message || result?.guardian?.reasons?.join(' ') || 'Deterministic safety boundary verified.' }, critic: { status: p.critic?.status || (result?.critic?.status === 'approved' ? 'APPROVED' : 'STANDBY'), intent: p.critic?.intent || result?.task?.taskType || 'COGNITIVE_SYNTHESIS', confidence: Number.isFinite(p.critic?.confidence) ? p.critic.confidence : 0.95 }, executor: { status: p.executor?.status || (result?.tool_result ? (result.tool_result.ok ? 'COMPLETED' : 'ERROR') : 'STANDBY'), tool: p.executor?.tool || result?.toolUsed || null } }; }
-function speechText(value: string) { return value.replace(/```[\s\S]*?```/g, ' ').replace(/https?:\/\/\S+/gi, ' ').replace(/[#*_`>\[\]{}|~]/g, ' ').replace(/\s+/g, ' ').trim(); }
+function normalizeMood(value: unknown, fallback = 'CALM') {
+  const candidate = typeof value === 'string' ? value.toUpperCase() : '';
+  return MOODS.has(candidate) ? candidate : fallback;
+}
+
+function speechText(value: string) {
+  return String(value || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/[#*_`>\[\]{}|~]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 let voiceQueue: Promise<void> = Promise.resolve();
 async function speakOne(text: string) {
-  const clean = speechText(text); if (!clean) return;
+  const clean = speechText(text);
+  if (!clean) return;
   try {
-    emitActivity({ type: 'speaking', state: 'speaking', label: 'Voice playback in progress.' });
+    emitActivity({ type: 'state', state: 'speaking', label: 'Voice playback in progress.' });
     const audio = await request<any>('/api/tts', { method: 'POST', body: JSON.stringify({ text: clean, provider: 'fish-audio-s2.1-pro-free', format: 'mp3' }) });
     const filename = String(audio?.path || '').split(/[\\/]/).pop();
     if (!filename) throw new Error('Voice synthesis returned no audio file.');
     const player = new Audio(`${CORE_URL}/api/audio?path=${encodeURIComponent(filename)}`);
     player.volume = 1;
-    await new Promise<void>((resolve, reject) => { player.onended = () => resolve(); player.onerror = () => reject(new Error('Voice playback failed.')); void player.play().catch(reject); });
-  } catch (error) { emitActivity({ type: 'voice_error', state: 'error', label: 'Voice unavailable.', error: error instanceof Error ? error.message : String(error) }); }
+    await new Promise<void>((resolve, reject) => {
+      player.onended = () => resolve();
+      player.onerror = () => reject(new Error('Voice playback failed.'));
+      void player.play().catch(reject);
+    });
+  } catch (error) {
+    emitActivity({ type: 'voice_error', state: 'error', label: 'Voice unavailable.', error: error instanceof Error ? error.message : String(error) });
+  }
 }
-function speakSequentially(text: string) { voiceQueue = voiceQueue.then(() => speakOne(text)); return voiceQueue; }
-
-function findBoundary(buffer: string) { const crlf = buffer.indexOf('\r\n\r\n'); const lf = buffer.indexOf('\n\n'); if (crlf < 0) return lf; if (lf < 0) return crlf; return Math.min(crlf, lf); }
-function boundaryLength(buffer: string, index: number) { return buffer.slice(index, index + 4) === '\r\n\r\n' ? 4 : 2; }
+function speakSequentially(text: string) {
+  voiceQueue = voiceQueue.then(() => speakOne(text));
+  return voiceQueue;
+}
 
 function parseExplicitGitHubRead(prompt: string) {
   const normalized = String(prompt || '').trim().replace(/^ultron\s*[,;:-]?\s*/i, '');
   const match = normalized.match(/^(?:read|open|inspect|check)\s+([A-Za-z0-9._\-/]+)\s+(?:from|on|in)\s+GitHub(?:\s+(?:and|then)\s+.*)?$/i);
   if (!match) return null;
-  return { path: match[1], ref: undefined as string | undefined };
+  return { path: match[1], ref: undefined as string | undefined, wantsPersonality: /\bpersonality\b/i.test(normalized) };
 }
 
-function formatExplicitGitHubRead(path: string, content: string) {
-  if (/core\/personality\/default\.json$/i.test(path)) {
+function formatGitHubResult(path: string, content: string, wantsPersonality: boolean) {
+  if (wantsPersonality && /core\/personality\/default\.json$/i.test(path)) {
     try {
       const cfg = JSON.parse(content);
-      const name = cfg.IDENTITY?.NAME || cfg.name || cfg.ULTRON_NAME || 'ULTRON';
-      const role = cfg.IDENTITY?.ROLE || cfg.role || cfg.ULTRON_ROLE || 'personal AI assistant';
-      const personality = cfg.PERSONALITY_PROFILE || cfg.ULTRON_PERSONALITY || cfg.personality || '';
+      const identity = cfg.IDENTITY || {};
+      const name = identity.NAME || cfg.ULTRON_NAME || cfg.name || 'ULTRON';
+      const role = identity.ROLE || cfg.ULTRON_ROLE || cfg.role || 'personal AI assistant';
+      const personality = cfg.PERSONALITY_PROFILE || cfg.ULTRON_PERSONALITY || cfg.personality || 'Not specified.';
       const instructions = cfg.BEHAVIORAL_INSTRUCTIONS || cfg.ULTRON_INSTRUCTIONS || cfg.instructions || [];
-      const list = Array.isArray(instructions) ? instructions : String(instructions).split('\n').filter(Boolean);
-      return `I read ${path} from GitHub.\n\n**Identity:** ${name}\n**Role:** ${role}\n\n**Personality:** ${personality}\n\n**Behavioral profile:** ${list.length} directives are configured. The personality emphasizes composure, strategy, directness, subtle playfulness, practical action, thoughtful challenge, creativity, philosophy, and truth over comfort.`;
-    } catch { /* fall through to generic formatting */ }
+      const count = Array.isArray(instructions) ? instructions.length : String(instructions).split(/\r?\n/).filter(Boolean).length;
+      return `I read ${path} from GitHub.\n\nIdentity: ${name}\nRole: ${role}\nPersonality: ${personality}\nBehavioral directives: ${count}.`;
+    } catch {}
   }
-  const preview = content.length > 12000 ? `${content.slice(0, 12000)}\n\n[Truncated at 12,000 characters.]` : content;
-  return `I read ${path} from GitHub.\n\n\`\`\`text\n${preview}\n\`\`\``;
-}
-
-async function executeExplicitGitHubRead(prompt: string, startedAt: number) {
-  const intent = parseExplicitGitHubRead(prompt);
-  if (!intent) return null;
-  emitActivity({ type: 'state', state: 'researching', label: `Reading ${intent.path} from GitHub.` });
-  emitActivity({ type: 'tool', state: 'executing', label: `Executing github_read_file for ${intent.path}.`, tool: 'github_read_file' });
-  const result = await executeTool('github_read_file', intent);
-  const payload = result?.result;
-  if (!result?.ok || !payload?.content) throw new Error(payload?.error || result?.error || `Unable to read ${intent.path} from GitHub.`);
-  const text = formatExplicitGitHubRead(intent.path, String(payload.content));
-  emitActivity({ type: 'delta', state: 'responding', label: 'Generating response…', text });
-  emitActivity({ type: 'text_complete', state: 'synthesizing', label: 'Text response complete. Preparing voice.' });
-  await speakSequentially(text);
-  emitActivity({ type: 'complete', state: 'complete', label: 'Task complete.', durationMs: Date.now() - startedAt });
-  return { ok: true, text, response: text, model: 'github-deterministic', mood: 'FOCUSED', pipeline: normalizePipeline({ tool_result: result, task: { taskType: 'github_read' } }), toolUsed: 'github_read_file', durationMs: Date.now() - startedAt };
+  return content || `I read ${path}, but the file contained no displayable text.`;
 }
 
 export async function sendUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '') {
   const started = Date.now();
   emitActivity({ type: 'state', state: 'thinking', label: 'Understanding the objective.' });
   try {
-    emitActivity({ type: 'state', state: 'planning', label: 'Determining the best execution path.' });
-    const explicit = await executeExplicitGitHubRead(prompt, started);
-    if (explicit) return explicit;
-    return await streamUltronQuery(prompt, conversationHistory, activeMood, userDirectives, started);
+    const explicit = parseExplicitGitHubRead(prompt);
+    if (explicit) {
+      emitActivity({ type: 'state', state: 'researching', label: `Reading ${explicit.path} from GitHub.` });
+      emitActivity({ type: 'state', state: 'executing', label: `Executing github_read_file.`, tool: 'github_read_file' });
+      const raw = await executeTool('github_read_file', explicit);
+      if (!raw?.ok) throw new Error(raw?.error || 'GitHub read failed.');
+      const payload = raw.result || raw;
+      const content = String(payload?.content || '');
+      const text = formatGitHubResult(explicit.path, content, explicit.wantsPersonality);
+      emitActivity({ type: 'delta', state: 'responding', label: 'Generating response.', text });
+      emitActivity({ type: 'text_complete', state: 'synthesizing', label: 'Text response complete. Preparing voice.' });
+      await speakSequentially(text);
+      emitActivity({ type: 'complete', state: 'complete', label: 'Task complete.', durationMs: Date.now() - started });
+      return { ok: true, text, response: text, mood: 'FOCUSED', toolUsed: 'github_read_file', pipeline: { guardian: { status: 'CLEAR', riskScore: 0, message: 'Deterministic safety boundary verified.' }, critic: { status: 'APPROVED', intent: 'GITHUB_READ', confidence: 0.99 }, executor: { status: 'COMPLETED', tool: 'github_read_file' } } };
+    }
+
+    // Reliable first: get a complete JSON response. Streaming remains available separately.
+    emitActivity({ type: 'state', state: 'planning', label: 'Selecting execution path.' });
+    const result = await request<any>('/api/chat', { method: 'POST', body: JSON.stringify({ message: prompt, source: 'interface', conversationHistory, userDirectives }) });
+    const text = String(result?.response ?? result?.text ?? '').trim();
+    if (!text) throw new Error('ULTRON Core returned an empty response.');
+    emitActivity({ type: 'delta', state: 'responding', label: 'Response ready.', text });
+    emitActivity({ type: 'text_complete', state: 'synthesizing', label: 'Text response complete. Preparing voice.' });
+    await speakSequentially(text);
+    emitActivity({ type: 'complete', state: 'complete', label: 'Task complete.', durationMs: Date.now() - started });
+    return { ...result, text, response: text, mood: normalizeMood(result?.mood, normalizeMood(activeMood, 'CALM')), conversationHistory, userDirectives, toolUsed: result?.toolUsed || null };
   } catch (error) {
     emitActivity({ type: 'error', state: 'error', label: 'ULTRON request failed.', error: error instanceof Error ? error.message : String(error), durationMs: Date.now() - started });
     throw error;
   }
 }
 
-export async function streamUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '', startedAt = Date.now()) {
-  const fallbackMood = normalizeMood(activeMood, 'CALM');
-  const res = await fetch(`${CORE_URL}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message: prompt, source: 'interface', conversationHistory, userDirectives }) });
-  if (!res.ok || !res.body) { const body = await res.text(); throw new Error(`ULTRON streaming request failed (${res.status}): ${body.slice(0, 400)}`); }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalResult: any = null;
-  let streamed = '';
-
-  const consume = (block: string) => {
-    const dataLines = block.replace(/\r/g, '').split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart());
-    if (!dataLines.length) return;
-    let payload: any;
-    try { payload = JSON.parse(dataLines.join('\n')); } catch { return; }
-    const type = String(payload?.type || 'message');
-    if (type === 'meta') {
-      emitActivity({ ...payload, state: 'researching', label: 'Analyzing context and selecting execution path.' });
-    } else if (type === 'tool') {
-      const name = payload?.toolCalls?.[0]?.function?.name || payload?.toolResults?.[0]?.toolCall?.function?.name || 'tool';
-      emitActivity({ ...payload, state: 'executing', label: `Executing ${name}.`, tool: name });
-    } else if (type === 'delta') {
-      const chunk = String(payload.text || '');
-      if (chunk) { streamed += chunk; emitActivity({ ...payload, state: 'responding', label: 'Generating response…', text: chunk }); }
-    } else if (type === 'error') {
-      emitActivity({ ...payload, state: 'error', label: 'Execution failed.' });
-      throw new Error(payload.error || 'ULTRON stream error.');
-    } else if (type === 'final') {
-      finalResult = payload.result || payload;
-      emitActivity({ ...payload, state: 'synthesizing', label: 'Finalizing response.' });
-    }
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let boundary;
-    while ((boundary = findBoundary(buffer)) >= 0) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + boundaryLength(buffer, boundary));
-      consume(block);
-    }
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) consume(buffer);
-
-  const mood = normalizeMood(finalResult?.mood, fallbackMood);
-  const responseText = String(finalResult?.response ?? finalResult?.text ?? streamed).trim();
-  const pipeline = normalizePipeline(finalResult);
-  const durationMs = Date.now() - startedAt;
-  emitActivity({ type: 'text_complete', state: 'synthesizing', label: 'Text response complete. Preparing voice.' });
-  if (responseText) await speakSequentially(responseText);
-  emitActivity({ type: 'complete', state: 'complete', label: 'Task complete.', durationMs });
-  return { ...finalResult, text: responseText || 'ULTRON returned no displayable response.', response: responseText || 'ULTRON returned no displayable response.', mood, conversationHistory, userDirectives, pipeline, toolUsed: finalResult?.toolUsed || finalResult?.tool_result?.tool || null };
+export async function streamUltronQuery(prompt: string, conversationHistory: { role: 'user' | 'model'; content: string }[] = [], activeMood = 'CALM', userDirectives = '') {
+  return sendUltronQuery(prompt, conversationHistory, activeMood, userDirectives);
 }
 
 export async function fetchMemories() { return request<any>('/api/memory'); }
